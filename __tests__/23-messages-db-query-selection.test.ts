@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { macos26Queries } from '../src/infra/db/macos26'
+import { createMacos26Queries, macos26Queries } from '../src/infra/db/macos26'
 import { resolveSchemaId } from '../src/infra/db/reader'
 
 describe('Messages DB Query Selection', () => {
@@ -14,6 +14,19 @@ describe('Messages DB Query Selection', () => {
 
         expect(sql).toContain('LEFT JOIN chat ON chat.ROWID = (')
         expect(sql).not.toContain('GROUP BY message_id')
+    })
+
+    it('uses message.* so SQLite returns whatever columns exist on this Messages build', () => {
+        const sql = createMacos26Queries().buildMessageQuery({ limit: 1 }).sql
+        expect(sql).toContain('message.*')
+        expect(sql).toContain('message.ROWID AS id')
+        expect(sql).toContain('handle.id AS participant')
+    })
+
+    it('uses attachment.* for attachment rows', () => {
+        const sql = macos26Queries.buildAttachmentQuery([1]).sql
+        expect(sql).toContain('attachment.*')
+        expect(sql).toContain('message_attachment_join.message_id AS msg_id')
     })
 
     it('builds chat summaries from a shared aggregate CTE instead of per-row subqueries', () => {

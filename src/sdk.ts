@@ -113,6 +113,13 @@ export class IMessageSDK implements SendPort {
             outgoingManager: this.outgoing,
             semaphore,
             debug: this.debug,
+            pollOutgoingConfirmation: async ({ chatId, sentAtMs }) =>
+                this.database.getMessages({
+                    chatId,
+                    isFromMe: true,
+                    since: new Date(sentAtMs - 5_000),
+                    limit: 40,
+                }),
         })
 
         this.tempFiles = new TempFileManager({ debug: this.debug })

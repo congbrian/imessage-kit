@@ -12,7 +12,7 @@ import { DatabaseError, toErrorMessage } from '../../domain/errors'
 import type { Message } from '../../domain/message'
 import type { ChatQuery, MessageQuery } from '../../types/query'
 import type { MessageQueryInput, MessagesDbQueries, QueryExecutor, SchemaId, SqlQuery } from './contract'
-import { macos26Queries } from './macos26'
+import { createMacos26Queries } from './macos26'
 import { parseNumber, requireNumber, rowToAttachment, rowToChat, rowToMessage } from './mapper'
 import { SqliteClient } from './sqlite-adapter'
 
@@ -26,10 +26,6 @@ const SEARCH_PAGE_SIZE = 200
 // -----------------------------------------------
 // Schema resolution
 // -----------------------------------------------
-
-const QUERIES_BY_SCHEMA: Record<SchemaId, MessagesDbQueries> = {
-    macos26: macos26Queries,
-}
 
 /**
  * Detect the schema version from the message table columns.
@@ -231,7 +227,7 @@ export class MessagesDatabaseReader extends SqliteClient {
     constructor(path: string) {
         super(path, true)
         this.exec = (sql, params) => this.all(sql, params ?? [])
-        this.queries = QUERIES_BY_SCHEMA[this.detectSchemaId()]
+        this.queries = createMacos26Queries()
     }
 
     /** Get the current maximum message ROWID. */
@@ -261,13 +257,5 @@ export class MessagesDatabaseReader extends SqliteClient {
     /** Search messages by text content (application-level filtering). */
     async searchMessages(query: MessageQuery): Promise<readonly Message[]> {
         return queryMessages(this.exec, this.queries, query)
-    }
-
-    private detectSchemaId(): SchemaId {
-        const rows = this.all("PRAGMA table_info('message')")
-        const columns = rows
-            .map((row) => row.name)
-            .filter((name): name is string => typeof name === 'string' && name !== '')
-        return resolveSchemaId(columns)
     }
 }

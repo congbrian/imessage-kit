@@ -29,6 +29,7 @@ import { MessagePromise, type OutgoingMessageManager } from './tracker'
 const SEND_TIMEOUT_MS = 30_000
 const RETRY_MAX_RETRIES = 2
 const RETRY_DELAY_MS = 1_500
+const OUTGOING_CONFIRM_POLL_MS = 200
 
 // -----------------------------------------------
 // Types
@@ -50,6 +51,14 @@ interface NormalizedSendJob {
 /** Options for constructing a MessageSender. */
 export interface MessageSenderOptions {
     readonly outgoingManager?: OutgoingMessageManager
+    /**
+     * Poll `chat.db` for the outgoing row so `send()` can confirm even when no WAL watcher
+     * is running yet (e.g. startup ping before `startWatching()`).
+     */
+    readonly pollOutgoingConfirmation?: (input: {
+        readonly chatId: string
+        readonly sentAtMs: number
+    }) => Promise<readonly Message[]>
     readonly semaphore?: Semaphore
     readonly debug?: boolean
     readonly timeout?: number
@@ -78,6 +87,7 @@ export class MessageSender implements SendPort {
     private readonly sendTimeoutMs: number
     private readonly outgoingManager: OutgoingMessageManager | null
     private readonly chatServicePrefix: ChatServicePrefix
+    private readonly pollOutgoingConfirmation: MessageSenderOptions['pollOutgoingConfirmation']
 
     constructor(options: MessageSenderOptions = {}) {
         this.debug = options.debug ?? false
@@ -86,6 +96,7 @@ export class MessageSender implements SendPort {
         this.semaphore = options.semaphore ?? null
         this.sendTimeoutMs = options.timeout ?? SEND_TIMEOUT_MS
         this.outgoingManager = options.outgoingManager ?? null
+        this.pollOutgoingConfirmation = options.pollOutgoingConfirmation
         this.chatServicePrefix = detectChatServicePrefix()
     }
 
@@ -126,9 +137,24 @@ export class MessageSender implements SendPort {
                 const paths = await this.prepareAttachments(attachments, signal)
 
                 const sentAt = new Date()
-                const messagePromise = this.createTrackingPromise(chatId, text, hasText, paths, sentAt)
+                const messagePromise = this.createTrackingPromise(
+                    chatId,
+                    text,
+                    hasText,
+                    paths,
+                    sentAt,
+                    effectiveTimeout
+                )
 
                 await this.executeAppleScripts(target, text, hasText, paths, effectiveTimeout, signal)
+
+                if (messagePromise && this.pollOutgoingConfirmation) {
+                    void this.runOutgoingConfirmationPoll(messagePromise, chatId, signal).catch((err) => {
+                        if (this.debug) {
+                            console.warn('[Sender] pollOutgoingConfirmation failed:', err)
+                        }
+                    })
+                }
 
                 const confirmedMessage = await this.awaitConfirmation(messagePromise)
 
@@ -209,7 +235,8 @@ export class MessageSender implements SendPort {
         text: string | undefined,
         hasText: boolean,
         paths: string[],
-        sentAt: Date
+        sentAt: Date,
+        confirmationTimeoutMs: number
     ): MessagePromise | null {
         if (!this.outgoingManager) return null
 
@@ -222,6 +249,7 @@ export class MessageSender implements SendPort {
                 attachmentName: paths[0] ? basename(paths[0]) : undefined,
                 isAttachment: true,
                 sentAt,
+                timeout: confirmationTimeoutMs,
             })
         } else if (hasText) {
             messagePromise = new MessagePromise({
@@ -229,6 +257,7 @@ export class MessageSender implements SendPort {
                 text,
                 isAttachment: false,
                 sentAt,
+                timeout: confirmationTimeoutMs,
             })
         }
 
@@ -292,6 +321,40 @@ export class MessageSender implements SendPort {
                 )
 
                 if (i < resolvedPaths.length - 1) await delay(500, signal)
+            }
+        }
+    }
+
+    private async runOutgoingConfirmationPoll(
+        messagePromise: MessagePromise,
+        chatId: string,
+        signal?: AbortSignal
+    ): Promise<void> {
+        const fetchBatch = this.pollOutgoingConfirmation
+        if (!fetchBatch) return
+
+        while (!messagePromise.isResolved) {
+            if (signal?.aborted) return
+
+            try {
+                const rows = await fetchBatch({ chatId, sentAtMs: messagePromise.sentAt })
+
+                for (const m of rows) {
+                    if (messagePromise.matches(m)) {
+                        messagePromise.resolve(m)
+                        return
+                    }
+                }
+            } catch {
+                /* best-effort; watcher may still confirm */
+            }
+
+            if (messagePromise.isResolved) return
+
+            try {
+                await delay(OUTGOING_CONFIRM_POLL_MS, signal)
+            } catch {
+                return
             }
         }
     }

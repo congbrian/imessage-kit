@@ -39,6 +39,7 @@ A full-featured iMessage SDK for **reading**, **sending**, and **automating** iM
 | Watch Own Messages | `sdk.startWatching()` | [13-watch-own-messages.ts](./examples/13-watch-own-messages.ts) |
 | [Scheduled Messages](#scheduled-messages) | `MessageScheduler` | [14-scheduled-messages.ts](./examples/14-scheduled-messages.ts) |
 | [Smart Reminders](#smart-reminders) | `Reminders` | [15-smart-reminders.ts](./examples/15-smart-reminders.ts) |
+| Temporal agent (LLM + timestamps) | `sdk.startWatching()` + Claude | [16-temporal-agent.ts](./examples/16-temporal-agent.ts) |
 
 ---
 
@@ -85,6 +86,22 @@ interface IMessageConfig {
 
 1. Open **System Settings → Privacy & Security → Full Disk Access**
 2. Click **"+"** and add your IDE or terminal (e.g., Cursor, VS Code, Terminal, Warp)
+
+---
+
+## Local development
+
+This repo is **TypeScript** only. Dependencies are declared in [`package.json`](./package.json) and installed with **Bun** (see the `packageManager` field). Unlike Python’s venv, there is no separate interpreter environment: libraries land in **`node_modules/`** at the repo root, and **`bun.lock`** pins exact versions (similar to `requirements.txt` + a lockfile).
+
+```bash
+bun install
+bun run build
+bun run type-check
+bun test
+bun run examples/07-watch-messages.ts
+```
+
+Examples that call external APIs (for example [16-temporal-agent.ts](./examples/16-temporal-agent.ts)) rely on **devDependencies** in `package.json` and environment variables such as `ANTHROPIC_API_KEY` (optional `ANTHROPIC_MODEL`).
 
 ---
 
