@@ -460,6 +460,7 @@ bun run examples/<filename>.ts
 ### Advanced
 - [11-plugin.ts](./examples/11-plugin.ts) - Custom plugin
 - [12-error-handling.ts](./examples/12-error-handling.ts) - Error handling
+- [16-follow-up-agent.ts](./examples/18-follow-up-agent.ts) - Follow-up nudges, drafts, and send ([FOLLOWUP-AGENT.md](./examples/FOLLOWUP-AGENT.md))
 
 ---
 
